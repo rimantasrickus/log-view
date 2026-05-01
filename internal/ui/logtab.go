@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"image/color"
 	"path/filepath"
 	"strconv"
@@ -184,7 +183,7 @@ func (lt *LogTab) runFilter(query string, caseSensitive bool, toNewTab bool) {
 
 		lines := make([]string, len(result.OriginalLineNumbers))
 		for i, lineNum := range result.OriginalLineNumbers {
-			lines[i] = fmt.Sprintf("[%d] %s", lineNum+1, lt.reader.Line(lineNum))
+			lines[i] = lt.reader.Line(lineNum)
 		}
 
 		if toNewTab {

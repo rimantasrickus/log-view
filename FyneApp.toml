@@ -3,4 +3,4 @@ Icon = "Icon.png"
 Name = "LogView"
 ID = "com.logviewer.app"
 Version = "1.0.0"
-Build = 13
+Build = 14
