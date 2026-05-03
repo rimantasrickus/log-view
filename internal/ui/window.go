@@ -21,7 +21,7 @@ import (
 type MainWindow struct {
 	window     fyne.Window
 	appState   *app.App
-	tabs       *container.DocTabs
+	tabs       *CloseableDocTabs
 	logTabs    []*LogTab
 	welcomeTab *container.TabItem
 }
@@ -36,7 +36,7 @@ func NewMainWindow(fyneApp fyne.App, appState *app.App) *MainWindow {
 		appState: appState,
 	}
 
-	mw.tabs = container.NewDocTabs()
+	mw.tabs = NewCloseableDocTabs()
 	mw.tabs.CloseIntercept = func(item *container.TabItem) {
 		mw.closeTab(item)
 	}

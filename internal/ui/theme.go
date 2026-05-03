@@ -25,7 +25,7 @@ func (t *logViewerTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVaria
 		}
 		return color.NRGBA{R: 0x25, G: 0x25, B: 0x25, A: 0xff}
 	case theme.ColorNameSeparator:
-		return color.Transparent
+		return theme.DefaultTheme().Color(name, variant)
 	}
 	return theme.DefaultTheme().Color(name, variant)
 }
