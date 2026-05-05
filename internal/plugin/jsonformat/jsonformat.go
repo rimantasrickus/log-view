@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
@@ -47,41 +46,15 @@ func (j *JSONFormatter) Render(line string) fyne.CanvasObject {
 	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
 		entry := widget.NewMultiLineEntry()
 		entry.SetText(line)
-		entry.Disable()
+		entry.TextStyle = fyne.TextStyle{Monospace: true}
+		entry.Wrapping = fyne.TextWrapWord
+		entry.SetMinRowsVisible(10)
 		return entry
 	}
 
 	expanded := expandJSONStrings(raw)
 
-	// Build a tree model from the parsed JSON
-	model := newJSONTreeModel(expanded)
-
-	var tree *widget.Tree
-	tree = widget.NewTree(
-		func(uid widget.TreeNodeID) []widget.TreeNodeID {
-			return model.childUIDs(uid)
-		},
-		func(uid widget.TreeNodeID) bool {
-			return model.isBranch(uid)
-		},
-		func(branch bool) fyne.CanvasObject {
-			txt := canvas.NewText("", nil)
-			txt.TextStyle = fyne.TextStyle{Monospace: true}
-			txt.TextSize = 12
-			return txt
-		},
-		func(uid widget.TreeNodeID, branch bool, obj fyne.CanvasObject) {
-			txt := obj.(*canvas.Text)
-			txt.Text = model.nodeLabel(uid, branch && tree.IsBranchOpen(uid), tree)
-			txt.Refresh()
-		},
-	)
-	model.tree = tree
-
-	// Open all branches by default
-	model.openAll(tree, "")
-
-	return container.NewStack(tree)
+	return container.NewScroll(NewJSONTextView(expanded))
 }
 
 // expandJSONStrings recursively walks a parsed JSON value and expands any
