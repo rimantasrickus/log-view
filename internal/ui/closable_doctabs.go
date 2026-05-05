@@ -247,14 +247,15 @@ func newTabHeader(text string, selected bool, onTapped, onClosed func(), tabs ba
 
 func (t *tabHeader) CreateRenderer() fyne.WidgetRenderer {
 	background := canvas.NewRectangle(color.Transparent)
+	indicator := canvas.NewRectangle(color.Transparent)
 	th := t.Theme()
 	label := canvas.NewText(t.text, nil)
 	label.TextSize = th.Size(theme.SizeNameText)
 	label.TextStyle.Bold = true
-	label.Alignment = fyne.TextAlignLeading
+	label.Alignment = fyne.TextAlignCenter
 
-	objects := []fyne.CanvasObject{background, label, t.close}
-	return &tabHeaderRenderer{tab: t, background: background, label: label, objects: objects}
+	objects := []fyne.CanvasObject{background, indicator, label, t.close}
+	return &tabHeaderRenderer{tab: t, background: background, indicator: indicator, label: label, objects: objects}
 }
 
 func (t *tabHeader) MinSize() fyne.Size {
@@ -267,13 +268,11 @@ func (t *tabHeader) MinSize() fyne.Size {
 	labelWidth := float32(len(t.text)) * textSize * 0.6 // rough estimate
 	labelHeight := textSize * 1.4
 
-	// Increased height for better visibility
-	height := labelHeight + padding*2
+	width := labelWidth + closeSize.Width + padding*4
+	height := fyne.Max(labelHeight, closeSize.Height) + padding*2
 	if height < 40 {
 		height = 40
 	}
-
-	width := labelWidth + closeSize.Width + padding*4
 	return fyne.NewSize(width, height)
 }
 
@@ -308,6 +307,7 @@ func (t *tabHeader) Refresh() {
 type tabHeaderRenderer struct {
 	tab        *tabHeader
 	background *canvas.Rectangle
+	indicator  *canvas.Rectangle
 	label      *canvas.Text
 	objects    []fyne.CanvasObject
 }
@@ -319,13 +319,20 @@ func (r *tabHeaderRenderer) Layout(size fyne.Size) {
 	padding := th.Size(theme.SizeNamePadding) * 2
 
 	r.background.Resize(size)
+	r.background.Move(fyne.NewPos(0, 0))
+
+	// Position indicator bar at the bottom
+	indicatorHeight := float32(2)
+	r.indicator.Resize(fyne.NewSize(size.Width, indicatorHeight))
+	r.indicator.Move(fyne.NewPos(0, size.Height-indicatorHeight))
+
 	labelSize := r.label.MinSize()
 	closeSize := r.tab.close.MinSize()
 
-	// Ensure text doesn't overlap with the close button
-	availableWidth := size.Width - closeSize.Width - padding*3
-	if availableWidth < labelSize.Width {
-		labelSize.Width = availableWidth
+	// Center the text, accounting for close button on the right
+	textAreaWidth := size.Width - closeSize.Width - padding*2
+	if textAreaWidth < labelSize.Width {
+		labelSize.Width = textAreaWidth
 	}
 
 	r.label.Resize(labelSize)
@@ -355,34 +362,29 @@ func (r *tabHeaderRenderer) Objects() []fyne.CanvasObject {
 	return r.objects
 }
 
-func defaultTabBackground(v fyne.ThemeVariant) color.Color {
-	if v == theme.VariantLight {
-		return color.NRGBA{R: 0xf6, G: 0xf6, B: 0xf6, A: 0xff}
-	}
-	return color.NRGBA{R: 0x1f, G: 0x1f, B: 0x1f, A: 0xff}
-}
-
-func hoverTabBackground(v fyne.ThemeVariant) color.Color {
-	if v == theme.VariantLight {
-		return color.NRGBA{R: 0xe4, G: 0xe4, B: 0xe4, A: 0xff}
-	}
-	return color.NRGBA{R: 0x38, G: 0x38, B: 0x38, A: 0xff}
-}
-
 func (r *tabHeaderRenderer) Refresh() {
 	th := r.tab.Theme()
 	v := fyne.CurrentApp().Settings().ThemeVariant()
 	hovered := r.tab.hovered || r.tab.close.hovered
 
-	if r.tab.selected {
-		r.background.FillColor = th.Color(theme.ColorNameHover, v)
-	} else if hovered {
-		r.background.FillColor = hoverTabBackground(v)
-	} else {
-		r.background.FillColor = defaultTabBackground(v)
-	}
+	// Background is transparent by default
+	r.background.FillColor = color.Transparent
 	r.background.CornerRadius = th.Size(theme.SizeNameSelectionRadius)
 	r.background.Show()
+
+	// Indicator bar for selected tab
+	if r.tab.selected {
+		r.indicator.FillColor = th.Color(theme.ColorNamePrimary, v)
+		r.indicator.Show()
+	} else {
+		r.indicator.Hide()
+	}
+
+	// Subtle hover rectangle
+	if hovered && !r.tab.selected {
+		r.background.FillColor = th.Color(theme.ColorNameHover, v)
+		r.background.Show()
+	}
 
 	if r.tab.selected {
 		r.label.Color = th.Color(theme.ColorNamePrimary, v)

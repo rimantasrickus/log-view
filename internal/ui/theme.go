@@ -18,12 +18,6 @@ func NewLogViewerTheme() fyne.Theme {
 
 func (t *logViewerTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
-	case theme.ColorNameHeaderBackground:
-		// Slightly darker header to distinguish tab bar from content
-		if variant == theme.VariantLight {
-			return color.NRGBA{R: 0xe8, G: 0xe8, B: 0xe8, A: 0xff}
-		}
-		return color.NRGBA{R: 0x25, G: 0x25, B: 0x25, A: 0xff}
 	case theme.ColorNameSeparator:
 		return theme.DefaultTheme().Color(name, variant)
 	}
