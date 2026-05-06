@@ -2,11 +2,13 @@ package jsonformat
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -86,11 +88,13 @@ func (s selectionRange) reset() selectionRange {
 // text and supports text selection and copy.
 type JSONTextView struct {
 	widget.BaseWidget
-	root       *jsonTextNode
-	lines      []*jsonTextLine
-	selection  selectionRange
-	charWidth  float32
-	lineHeight float32
+	root        *jsonTextNode
+	lines       []*jsonTextLine
+	selection   selectionRange
+	charWidth   float32
+	lineHeight  float32
+	mouseDown   bool
+	suppressTap bool
 }
 
 func NewJSONTextView(data any) *JSONTextView {
@@ -164,6 +168,14 @@ func (v *JSONTextView) CopySelection() {
 	fyne.CurrentApp().Clipboard().SetContent(text)
 }
 
+func (v *JSONTextView) FocusGained() {}
+
+func (v *JSONTextView) FocusLost() {}
+
+func (v *JSONTextView) TypedRune(rune) {}
+
+func (v *JSONTextView) TypedKey(*fyne.KeyEvent) {}
+
 func (v *JSONTextView) CreateRenderer() fyne.WidgetRenderer {
 	return newJSONTextViewRenderer(v)
 }
@@ -176,6 +188,11 @@ func (v *JSONTextView) TypedShortcut(shortcut fyne.Shortcut) {
 }
 
 func (v *JSONTextView) Tapped(e *fyne.PointEvent) {
+	if v.suppressTap {
+		v.suppressTap = false
+		return
+	}
+	v.focus()
 	line, col := v.pointToLocation(e.Position)
 	if line < 0 || line >= len(v.lines) {
 		return
@@ -189,6 +206,51 @@ func (v *JSONTextView) Tapped(e *fyne.PointEvent) {
 	v.Refresh()
 }
 
+func (v *JSONTextView) TappedSecondary(e *fyne.PointEvent) {
+	v.focus()
+	v.showContextMenu(e.Position)
+}
+
+func (v *JSONTextView) MouseDown(e *desktop.MouseEvent) {
+	if e.Button != desktop.MouseButtonPrimary {
+		if e.Button == desktop.MouseButtonSecondary {
+			v.focus()
+			v.showContextMenu(e.Position)
+		}
+		return
+	}
+	v.suppressTap = true
+	v.focus()
+	line, col := v.pointToLocation(e.Position)
+	if line < 0 || line >= len(v.lines) {
+		return
+	}
+	if v.hitFoldMarker(e.Position, line) {
+		v.toggleFold(line)
+		return
+	}
+	v.selection.start = selectionPoint{line: line, col: col}
+	v.selection.end = v.selection.start
+	v.mouseDown = true
+	v.Refresh()
+}
+
+func (v *JSONTextView) MouseMoved(e *desktop.MouseEvent) {
+	if !v.mouseDown {
+		return
+	}
+	line, col := v.pointToLocation(e.Position)
+	if line < 0 || line >= len(v.lines) {
+		return
+	}
+	v.selection.end = selectionPoint{line: line, col: col}
+	v.Refresh()
+}
+
+func (v *JSONTextView) MouseUp(e *desktop.MouseEvent) {
+	v.mouseDown = false
+}
+
 func (v *JSONTextView) Dragged(d *fyne.DragEvent) {
 	line, col := v.pointToLocation(d.Position)
 	if line < 0 || line >= len(v.lines) {
@@ -199,6 +261,27 @@ func (v *JSONTextView) Dragged(d *fyne.DragEvent) {
 }
 
 func (v *JSONTextView) DragEnd() {}
+
+func (v *JSONTextView) focus() {
+	canvas := fyne.CurrentApp().Driver().CanvasForObject(v)
+	if canvas != nil {
+		canvas.Focus(v)
+	}
+}
+
+func (v *JSONTextView) showContextMenu(pos fyne.Position) {
+	canvas := fyne.CurrentApp().Driver().CanvasForObject(v)
+	if canvas == nil {
+		return
+	}
+	copyItem := fyne.NewMenuItem("Copy", func() {
+		v.CopySelection()
+	})
+	if v.SelectedText() == "" {
+		copyItem.Disabled = true
+	}
+	widget.ShowPopUpMenuAtRelativePosition(fyne.NewMenu("", copyItem), canvas, pos, v)
+}
 
 func (v *JSONTextView) hitFoldMarker(pos fyne.Position, line int) bool {
 	if line < 0 || line >= len(v.lines) {
@@ -272,15 +355,31 @@ func (v *JSONTextView) appendLines(lines *[]*jsonTextLine, node *jsonTextNode, d
 	switch node.nodeType {
 	case "object":
 		if isRoot && node.key == "" {
-			lineText += "{"
+			if node.expanded {
+				lineText += "{"
+			} else {
+				lineText += "{...}"
+			}
 		} else {
-			lineText += fmt.Sprintf("%q: {", node.key)
+			if node.expanded {
+				lineText += fmt.Sprintf("%q: {", node.key)
+			} else {
+				lineText += fmt.Sprintf("%q: {...}", node.key)
+			}
 		}
 	case "array":
 		if isRoot && node.key == "" {
-			lineText += "["
+			if node.expanded {
+				lineText += "["
+			} else {
+				lineText += "[...]"
+			}
 		} else {
-			lineText += fmt.Sprintf("%q: [", node.key)
+			if node.expanded {
+				lineText += fmt.Sprintf("%q: [", node.key)
+			} else {
+				lineText += fmt.Sprintf("%q: [...]", node.key)
+			}
 		}
 	case "value":
 		if node.key != "" {
@@ -336,8 +435,20 @@ func (n *jsonTextNode) isBranch() bool {
 }
 
 type jsonTextViewRenderer struct {
-	view    *JSONTextView
-	objects []fyne.CanvasObject
+	view        *JSONTextView
+	objects     []fyne.CanvasObject
+	lineObjects []jsonTextLineObjects
+}
+
+type jsonTextLineObjects struct {
+	background *canvas.Rectangle
+	segments   []jsonTextSegment
+}
+
+type jsonTextSegment struct {
+	text      *canvas.Text
+	startCol  int
+	charCount int
 }
 
 func newJSONTextViewRenderer(view *JSONTextView) *jsonTextViewRenderer {
@@ -348,25 +459,16 @@ func (r *jsonTextViewRenderer) Destroy() {}
 
 func (r *jsonTextViewRenderer) Layout(size fyne.Size) {
 	y := float32(0)
-	index := 0
-	for i := range r.view.lines {
-		// Check if this line has a selection background rectangle
-		if r.view.selection.valid() && r.view.selection.contains(i) {
-			if index < len(r.objects) {
-				if rect, ok := r.objects[index].(*canvas.Rectangle); ok {
-					rect.Move(fyne.NewPos(0, y))
-					rect.Resize(fyne.NewSize(size.Width, r.view.lineHeight))
-					index++
-				}
-			}
+	for _, line := range r.lineObjects {
+		if line.background != nil {
+			line.background.Move(fyne.NewPos(line.background.Position().X, y))
+			line.background.Resize(fyne.NewSize(line.background.Size().Width, r.view.lineHeight))
 		}
-		// Position text object
-		if index < len(r.objects) {
-			if text, ok := r.objects[index].(*canvas.Text); ok {
-				text.Move(fyne.NewPos(0, y))
-				text.Resize(fyne.NewSize(size.Width, r.view.lineHeight))
-				index++
-			}
+		for _, segment := range line.segments {
+			x := float32(segment.startCol) * r.view.charWidth
+			width := float32(segment.charCount) * r.view.charWidth
+			segment.text.Move(fyne.NewPos(x, y))
+			segment.text.Resize(fyne.NewSize(width, r.view.lineHeight))
 		}
 		y += r.view.lineHeight
 	}
@@ -392,24 +494,69 @@ func (r *jsonTextViewRenderer) Objects() []fyne.CanvasObject {
 }
 
 func (r *jsonTextViewRenderer) Refresh() {
-	r.objects = make([]fyne.CanvasObject, 0, len(r.view.lines)*2)
-	selected := r.view.selection.valid()
+	r.objects = make([]fyne.CanvasObject, 0, len(r.view.lines)*4)
+	r.lineObjects = make([]jsonTextLineObjects, 0, len(r.view.lines))
 	for i, line := range r.view.lines {
-		if selected && r.view.selection.contains(i) {
-			rect := canvas.NewRectangle(theme.ForegroundColor())
-			rect.FillColor = theme.ForegroundColor()
-			rect.StrokeWidth = 0
-			r.objects = append(r.objects, rect)
+		lineObjects := jsonTextLineObjects{}
+		startCol, endCol, hasRange := r.view.selection.lineRange(i)
+		runes := []rune(line.text)
+		lineLen := len(runes)
+
+		if hasRange {
+			if startCol < 0 {
+				startCol = 0
+			}
+			if endCol < 0 || endCol > lineLen {
+				endCol = lineLen
+			}
+			if startCol > endCol {
+				startCol, endCol = endCol, startCol
+			}
+			if startCol < endCol {
+				rect := canvas.NewRectangle(theme.ForegroundColor())
+				rect.FillColor = theme.ForegroundColor()
+				rect.StrokeWidth = 0
+				rect.Move(fyne.NewPos(float32(startCol)*r.view.charWidth, 0))
+				rect.Resize(fyne.NewSize(float32(endCol-startCol)*r.view.charWidth, r.view.lineHeight))
+				lineObjects.background = rect
+				r.objects = append(r.objects, rect)
+
+				if startCol > 0 {
+					segment := r.newTextSegment(string(runes[:startCol]), theme.ColorForWidget(theme.ColorNameForeground, r.view), 0)
+					lineObjects.segments = append(lineObjects.segments, segment)
+					r.objects = append(r.objects, segment.text)
+				}
+				segment := r.newTextSegment(string(runes[startCol:endCol]), theme.BackgroundColor(), startCol)
+				lineObjects.segments = append(lineObjects.segments, segment)
+				r.objects = append(r.objects, segment.text)
+				if endCol < lineLen {
+					segment = r.newTextSegment(string(runes[endCol:]), theme.ColorForWidget(theme.ColorNameForeground, r.view), endCol)
+					lineObjects.segments = append(lineObjects.segments, segment)
+					r.objects = append(r.objects, segment.text)
+				}
+				r.lineObjects = append(r.lineObjects, lineObjects)
+				continue
+			}
 		}
-		text := canvas.NewText(line.text, theme.ForegroundColor())
-		text.TextStyle = fyne.TextStyle{Monospace: true}
-		text.TextSize = jsonTextSize
-		text.Alignment = fyne.TextAlignLeading
-		if selected && r.view.selection.contains(i) {
-			text.Color = theme.BackgroundColor()
-		} else {
-			text.Color = theme.ColorForWidget(theme.ColorNameForeground, r.view)
-		}
-		r.objects = append(r.objects, text)
+
+		segment := r.newTextSegment(line.text, theme.ColorForWidget(theme.ColorNameForeground, r.view), 0)
+		lineObjects.segments = append(lineObjects.segments, segment)
+		r.objects = append(r.objects, segment.text)
+		r.lineObjects = append(r.lineObjects, lineObjects)
+	}
+
+	r.Layout(r.view.Size())
+	canvas.Refresh(r.view)
+}
+
+func (r *jsonTextViewRenderer) newTextSegment(value string, color color.Color, startCol int) jsonTextSegment {
+	text := canvas.NewText(value, color)
+	text.TextStyle = fyne.TextStyle{Monospace: true}
+	text.TextSize = jsonTextSize
+	text.Alignment = fyne.TextAlignLeading
+	return jsonTextSegment{
+		text:      text,
+		startCol:  startCol,
+		charCount: len([]rune(value)),
 	}
 }

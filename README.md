@@ -1,6 +1,7 @@
 # LogView
 
 LogView is a native Linux (and cross-platform) log file viewer built with Go and the Fyne GUI toolkit. It provides a modern, user-friendly interface for viewing, filtering, and analyzing log files.
+
 Note: This app was generated fully with AI. No code was handwritten.
 
 ## Features

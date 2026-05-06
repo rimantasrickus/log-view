@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"log-viewer/internal/plugin"
@@ -54,7 +55,8 @@ func (j *JSONFormatter) Render(line string) fyne.CanvasObject {
 
 	expanded := expandJSONStrings(raw)
 
-	return container.NewScroll(NewJSONTextView(expanded))
+	// Wrap in a Scroll to restore horizontal and vertical scrolling
+	return fyne.NewContainerWithLayout(layout.NewMaxLayout(), container.NewScroll(NewJSONTextView(expanded)))
 }
 
 // expandJSONStrings recursively walks a parsed JSON value and expands any
