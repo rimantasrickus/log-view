@@ -47,12 +47,13 @@ type LogTab struct {
 	menuShownAt  time.Time
 
 	// Filter result state
-	filterResult  *filter.Result
-	filterList    *widget.List
-	filterSplit   *container.Split
-	mainContainer fyne.CanvasObject
-	bottomBar     fyne.CanvasObject
-	cancelFilter  context.CancelFunc
+	filterResult   *filter.Result
+	filterList     *widget.List
+	filterSplit    *container.Split
+	mainContainer  fyne.CanvasObject
+	contentWrapper *fyne.Container
+	bottomBar      fyne.CanvasObject
+	cancelFilter   context.CancelFunc
 
 	// Callback to open a new tab (injected by window)
 	OnOpenTab func(path string)
@@ -157,7 +158,13 @@ func (lt *LogTab) buildLayout() {
 	lt.menuOverlay = container.NewWithoutLayout()
 	lt.listWithMenu = container.New(&overlayLayout{}, lt.list, lt.menuOverlay)
 	lt.mainContainer = container.NewBorder(nil, lt.bottomBar, nil, nil, lt.listWithMenu)
-	lt.content = lt.mainContainer
+	if lt.contentWrapper == nil {
+		lt.contentWrapper = container.NewMax(lt.mainContainer)
+	} else {
+		lt.contentWrapper.Objects = []fyne.CanvasObject{lt.mainContainer}
+		lt.contentWrapper.Refresh()
+	}
+	lt.content = lt.contentWrapper
 }
 
 func (lt *LogTab) runFilter(query string, caseSensitive bool, toNewTab bool) {
@@ -263,11 +270,9 @@ func (lt *LogTab) showFilterResults(result *filter.Result) {
 	lt.filterSplit = container.NewVSplit(lt.listWithMenu, bottomPanel)
 	lt.filterSplit.SetOffset(0.6)
 
-	lt.content = lt.filterSplit
-
-	if lt.tabItem != nil {
-		lt.tabItem.Content = lt.content
-	}
+	lt.content = lt.contentWrapper
+	lt.contentWrapper.Objects = []fyne.CanvasObject{lt.filterSplit}
+	lt.contentWrapper.Refresh()
 }
 
 func (lt *LogTab) clearFilter() {
@@ -275,9 +280,6 @@ func (lt *LogTab) clearFilter() {
 	lt.filterList = nil
 	lt.filterBar.SetMatchCount(-1)
 	lt.buildLayout()
-	if lt.tabItem != nil {
-		lt.tabItem.Content = lt.content
-	}
 }
 
 // Content returns the tab content for embedding in a DocTabs.
